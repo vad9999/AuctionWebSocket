@@ -1,21 +1,39 @@
-const express = require('express')
-const cors = require('cors')
-const bodyParser = require('body-parser')
-const app = express()
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const app = express();
 
-app.use(cors())
-app.use(bodyParser.json())
+const {
+  sequelize,
+  User,
+  Auction,
+  Bid,
+  AuctionStatus,
+  AuctionType,
+  AuctionTopic
+} = require('./models'); 
 
-const http = require('http').createServer(app)
-const io = require('socket.io')(http, {
-    cors: {
-        origin: 'http://localhost:5173',
-        methods: ['PUT', 'POST']
-    }
-})
+app.use(cors());
+app.use(express.json());
 
-io.on('connection', (socket) => {
-    socket.on('message', (msg) => {
-        socket.emit('console', msg)
-    })
-})
+const PORT = process.env.PORT || 3000;
+
+async function start() {
+  try {
+    // подключение к Postgres
+    await sequelize.authenticate();
+    console.log('Connected to PostgreSQL');
+
+    // создание/обновление таблиц (для разработки)
+    await sequelize.sync({ alter: true }); // или await sequelize.sync({ alter: true });
+
+    app.listen(PORT, () => {
+      console.log(`HTTP сервер запущен на http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error('DB error:', err);
+    process.exit(1);
+  }
+}
+
+start();
