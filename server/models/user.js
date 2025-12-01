@@ -7,11 +7,6 @@ module.exports = (sequelize, DataTypes) => {
         autoIncrement: true,
         primaryKey: true
       },
-      username: {
-        type: DataTypes.STRING(50),
-        allowNull: false,
-        unique: true
-      },
       firstName: {
         type: DataTypes.STRING(50),
         allowNull: false
@@ -22,7 +17,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       surname: {
         type: DataTypes.STRING(50),
-        allowNull: false
+        allowNull: true
       },
       email: {
         type: DataTypes.STRING,
