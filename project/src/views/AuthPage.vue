@@ -106,11 +106,9 @@ import {
 const router = useRouter();
 const message = useMessage();
 
-// Логин
 const loginEmail = ref('');
 const loginPassword = ref('');
 
-// Регистрация (отдельные поля)
 const showRegisterModal = ref(false);
 const regFirstName = ref('');
 const regLastName = ref('');
@@ -124,12 +122,6 @@ function openRegisterModal() {
 
 function closeRegisterModal() {
   showRegisterModal.value = false;
-  // можно сбросить поля, если хочешь
-  // regFirstName.value = '';
-  // regLastName.value = '';
-  // regPatronymic.value = '';
-  // regEmail.value = '';
-  // regPassword.value = '';
 }
 
 async function handleLogin() {
@@ -153,7 +145,6 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
-  // простая проверка обязательных полей
   if (!regLastName.value || !regFirstName.value || !regEmail.value || !regPassword.value) {
     message.error('Фамилия, имя, email и пароль обязательны');
     return;

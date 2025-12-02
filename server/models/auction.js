@@ -7,41 +7,58 @@ module.exports = (sequelize, DataTypes) => {
         autoIncrement: true,
         primaryKey: true
       },
+
       title: {
         type: DataTypes.TEXT,
         allowNull: false
       },
       description: {
         type: DataTypes.TEXT,
-        allowNull: true
+        allowNull: false
       },
-      startPrice: {
+      startingPrice: {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: false
       },
       currentPrice: {
         type: DataTypes.DECIMAL(12, 2),
-        allowNull: false
+        allowNull: true
       },
-      statusId: {
-        type: DataTypes.BIGINT,
-        allowNull: false
+      status: {
+        type: DataTypes.ENUM('appointed', 'active', 'finished'),
+        allowNull: false,
+        defaultValue: 'appointed'
       },
-      typeId: {
-        type: DataTypes.BIGINT,
-        allowNull: false
+      type: {
+        type: DataTypes.ENUM('classic', 'dutch'),
+        allowNull: false,
+        defaultValue: 'classic'
       },
-      themeId: {
-        type: DataTypes.BIGINT,
+      theme: {
+        type: DataTypes.ENUM(
+          'cars',
+          'real_estate_residential',
+          'electronics',
+          'furniture',
+          'clothes',
+          'sports',
+          'kids_toys',
+          'books',
+          'services_it',
+          'services_repair',
+          'game_items',
+          'business_equipment',
+          'charity'
+        ),
         allowNull: false
       },
       startsAt: {
         type: DataTypes.DATE,
-        allowNull: true
+        allowNull: false
       },
       endsAt: {
         type: DataTypes.DATE,
-        allowNull: true
+        allowNull: false
       },
       createdBy: {
         type: DataTypes.BIGINT,
@@ -55,21 +72,7 @@ module.exports = (sequelize, DataTypes) => {
     {
       tableName: 'auctions',
       timestamps: true,
-      paranoid: true,
-      indexes: [
-        {
-          name: 'idx_auctions_statusId_startsAt',
-          fields: ['statusId', 'startsAt']
-        },
-        {
-          name: 'idx_auctions_typeId',
-          fields: ['typeId']
-        },
-        {
-          name: 'idx_auctions_themeId',
-          fields: ['themeId']
-        }
-      ]
+      paranoid: true
     }
   );
 

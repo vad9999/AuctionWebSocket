@@ -2,21 +2,23 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const authRoutes = require('./routes/auth');
+const auctionRutes = require('./routes/auction')
 const app = express();
 
 const {
   sequelize,
   User,
   Auction,
-  Bid,
-  AuctionStatus,
-  AuctionType,
-  AuctionTopic
+  Bid
+  // AuctionStatus,
+  // AuctionType,
+  // AuctionTopic
 } = require('./models'); 
 
 app.use(cors());
 app.use(express.json());
 app.use('/api/auth', authRoutes);
+app.use('/api/auctions', auctionRutes)
 
 const PORT = process.env.PORT || 3000;
 
