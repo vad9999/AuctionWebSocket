@@ -1,38 +1,38 @@
+// server/index.js
 require('dotenv').config();
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
-const authRoutes = require('./routes/auth');
-const auctionRutes = require('./routes/auction')
-const app = express();
 
-const {
-  sequelize,
-  User,
-  Auction,
-  Bid
-  // AuctionStatus,
-  // AuctionType,
-  // AuctionTopic
-} = require('./models'); 
+const authRoutes = require('./routes/auth');
+const auctionRoutes = require('./routes/auction');
+const { setupWebSocket } = require('./ws');
+
+const { sequelize } = require('./models');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use('/api/auth', authRoutes);
-app.use('/api/auctions', auctionRutes)
 
-const PORT = process.env.PORT || 3000;
+app.use('/api/auth', authRoutes);
+app.use('/api/auctions', auctionRoutes);
 
 async function start() {
   try {
-    // подключение к Postgres
     await sequelize.authenticate();
     console.log('Connected to PostgreSQL');
 
-    // создание/обновление таблиц (для разработки)
-    await sequelize.sync({ alter: true }); // или await sequelize.sync({ alter: true });
+    await sequelize.sync({ alter: true });
 
-    app.listen(PORT, () => {
-      console.log(`HTTP сервер запущен на http://localhost:${PORT}`);
+    const server = http.createServer(app);
+
+    // Поднимаем WebSocket поверх того же сервера/порта
+    setupWebSocket(server);
+
+    server.listen(PORT, () => {
+      console.log(`HTTP+WS сервер запущен на http://localhost:${PORT}`);
     });
   } catch (err) {
     console.error('DB error:', err);

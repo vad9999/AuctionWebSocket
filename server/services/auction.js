@@ -32,13 +32,13 @@ async function listAuctions({
     where.title = { [Op.iLike]: `%${search}%` };
   }
   if (theme) {
-    where.theme = theme; // ENUM
+    where.theme = theme; // ENUM theme
   }
   if (type) {
-    where.type = type;   // ENUM ('classic' | 'dutch')
+    where.type = type;   // ENUM type ('classic' | 'dutch')
   }
   if (status) {
-    where.status = status; // ENUM ('appointed' | 'active' | 'finished')
+    where.status = status; // ENUM status ('appointed' | 'active' | 'finished')
   }
 
   const order = buildOrder(sort);
@@ -71,17 +71,8 @@ async function listAuctions({
   };
 }
 
-// создание аукциона
-async function createAuction({
-  title,
-  description,
-  theme,
-  type,
-  startingPrice,
-  startsAt,
-  endsAt,
-  creatorId
-}) {
+// общая валидация полей
+function validateAuctionPayload({ title, description, theme, type, startingPrice, startsAt, endsAt }) {
   if (!title || !description || !theme || !type || !startingPrice || !startsAt || !endsAt) {
     throw new Error('Название, описание, тема, тип, стартовая цена и время начала/окончания обязательны');
   }
@@ -94,22 +85,46 @@ async function createAuction({
   const startDate = new Date(startsAt);
   const endDate = new Date(endsAt);
 
-  if (!(startDate instanceof Date) || isNaN(startDate)) {
+  if (isNaN(startDate.getTime())) {
     throw new Error('Некорректное время начала аукциона');
   }
-  if (!(endDate instanceof Date) || isNaN(endDate)) {
+  if (isNaN(endDate.getTime())) {
     throw new Error('Некорректное время окончания аукциона');
   }
   if (endDate <= startDate) {
     throw new Error('Время окончания должно быть позже времени начала');
   }
 
+  return { priceNum, startDate, endDate };
+}
+
+// создание аукциона
+async function createAuction({
+  title,
+  description,
+  theme,
+  type,
+  startingPrice,
+  startsAt,
+  endsAt,
+  creatorId
+}) {
+  const { priceNum, startDate, endDate } = validateAuctionPayload({
+    title,
+    description,
+    theme,
+    type,
+    startingPrice,
+    startsAt,
+    endsAt
+  });
+
   const auction = await Auction.create({
     title,
     description,
-    theme,                // один из ENUM: 'cars', 'real_estate_residential', ...
-    type,                 // 'classic' | 'dutch'
-    status: 'appointed',  // начальный статус
+    theme,
+    type,
+    status: 'appointed',    // начальный статус
     startingPrice: priceNum,
     currentPrice: priceNum,
     startsAt: startDate,
@@ -120,7 +135,86 @@ async function createAuction({
   return auction;
 }
 
+// обновление аукциона
+async function updateAuction({
+  auctionId,
+  userId,
+  title,
+  description,
+  theme,
+  type,
+  startingPrice,
+  startsAt,
+  endsAt
+}) {
+  const auction = await Auction.findByPk(auctionId);
+  if (!auction) {
+    throw new Error('Аукцион не найден');
+  }
+
+  // проверка, что текущий пользователь — организатор
+  if (auction.createdBy !== userId) {
+    throw new Error('У вас нет прав на редактирование этого аукциона');
+  }
+
+  const now = new Date();
+
+  // НЕЛЬЗЯ редактировать после начала
+  if (auction.startsAt && now >= auction.startsAt) {
+    throw new Error('Нельзя редактировать аукцион после начала');
+  }
+  // на всякий случай — завершённый тоже нельзя
+  if (auction.status === 'finished') {
+    throw new Error('Нельзя редактировать завершённый аукцион');
+  }
+
+  const { priceNum, startDate, endDate } = validateAuctionPayload({
+    title,
+    description,
+    theme,
+    type,
+    startingPrice,
+    startsAt,
+    endsAt
+  });
+
+  auction.title = title;
+  auction.description = description;
+  auction.theme = theme;
+  auction.type = type;
+  auction.startsAt = startDate;
+  auction.endsAt = endDate;
+  auction.startingPrice = priceNum;
+  auction.currentPrice = priceNum; // до начала можем перезадать
+
+  await auction.save();
+  return auction;
+}
+
+// удаление аукциона (soft delete, paranoid)
+async function deleteAuction({ auctionId, userId }) {
+  const auction = await Auction.findByPk(auctionId);
+  if (!auction) {
+    throw new Error('Аукцион не найден');
+  }
+
+  if (auction.createdBy !== userId) {
+    throw new Error('У вас нет прав на удаление этого аукциона');
+  }
+
+  const now = new Date();
+
+  // НЕЛЬЗЯ удалять после начала
+  if (auction.startsAt && now >= auction.startsAt) {
+    throw new Error('Нельзя удалить аукцион после его начала');
+  }
+
+  await auction.destroy(); // paranoid: true => soft delete (deletedAt)
+}
+
 module.exports = {
   listAuctions,
-  createAuction
+  createAuction,
+  updateAuction,
+  deleteAuction
 };

@@ -1,4 +1,4 @@
-// server/controllers/auctionController.js
+// server/controllers/auction.js
 const auctionService = require('../services/auction');
 
 async function list(req, res) {
@@ -23,7 +23,7 @@ async function list(req, res) {
       limit
     });
 
-    res.json(result); // { items, total, page, limit, hasMore }
+    res.json(result);
   } catch (e) {
     console.error('Auctions list error:', e);
     res.status(500).json({ error: 'Ошибка загрузки аукционов' });
@@ -32,7 +32,7 @@ async function list(req, res) {
 
 async function create(req, res) {
   try {
-    const userId = req.user?.id; // из authMiddleware
+    const userId = req.user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'Не авторизован' });
@@ -66,7 +66,65 @@ async function create(req, res) {
   }
 }
 
+async function update(req, res) {
+  try {
+    const userId = req.user?.id;
+    const auctionId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Не авторизован' });
+    }
+
+    const {
+      title,
+      description,
+      theme,
+      type,
+      startingPrice,
+      startsAt,
+      endsAt
+    } = req.body;
+
+    const auction = await auctionService.updateAuction({
+      auctionId,
+      userId,
+      title,
+      description,
+      theme,
+      type,
+      startingPrice,
+      startsAt,
+      endsAt
+    });
+
+    res.json(auction);
+  } catch (e) {
+    console.error('Update auction error:', e);
+    res.status(400).json({ error: e.message || 'Ошибка обновления аукциона' });
+  }
+}
+
+async function remove(req, res) {
+  try {
+    const userId = req.user?.id;
+    const auctionId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Не авторизован' });
+    }
+
+    await auctionService.deleteAuction({ auctionId, userId });
+
+    res.status(204).send(); // No Content
+  } catch (e) {
+    console.error('Delete auction error:', e);
+    res.status(400).json({ error: e.message || 'Ошибка удаления аукциона' });
+  }
+}
+
 module.exports = {
   list,
-  create
+  create,
+  update,
+  remove
 };

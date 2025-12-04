@@ -1,6 +1,7 @@
 import { createRouter } from 'vue-router';
 import AuthPage from '../views/AuthPage.vue'
 import MainPage from '../views/MainPage.vue';
+import AuctionPage from '../views/AuctionPage.vue';
 import { createWebHistory } from 'vue-router';
 
 const routes = [
@@ -17,6 +18,13 @@ const routes = [
         path: '/main',
         name: 'main',
         component: MainPage
+    },
+    {
+        path: '/auction/:id',
+        name: 'auction',
+        component: AuctionPage,
+        props: true
+
     }
 ];
 

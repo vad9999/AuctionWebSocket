@@ -122,6 +122,38 @@
                     </span>
                   </div>
                 </div>
+
+                <!-- Кнопки действий под карточкой -->
+                <template #footer>
+                  <div class="card-actions">
+                    <n-button
+                      size="small"
+                      @click="goToAuction(auction.id)"
+                    >
+                      Посмотреть
+                    </n-button>
+
+                    <n-button
+                      v-if="canEditDelete(auction)"
+                      size="small"
+                      quaternary
+                      type="primary"
+                      @click="openEditModal(auction)"
+                    >
+                      Изменить
+                    </n-button>
+
+                    <n-button
+                      v-if="canEditDelete(auction)"
+                      size="small"
+                      quaternary
+                      type="error"
+                      @click="handleDeleteAuction(auction)"
+                    >
+                      Удалить
+                    </n-button>
+                  </div>
+                </template>
               </n-card>
             </div>
           </n-gi>
@@ -138,11 +170,11 @@
       </div>
     </div>
 
-    <!-- Модальное окно создания аукциона -->
+    <!-- Модальное окно создания / редактирования аукциона -->
     <n-modal
       v-model:show="showCreateModal"
       preset="card"
-      title="Создание аукциона"
+      :title="isEditMode ? 'Редактирование аукциона' : 'Создание аукциона'"
       style="width: 600px; max-width: 95vw"
     >
       <n-form label-placement="top">
@@ -188,8 +220,8 @@
             type="datetime"
             format="dd.MM.yyyy HH:mm"
             value-format="timestamp"
-          placeholder="Выберите дату и время начала"
-          :is-date-disabled="disablePastDates"
+            placeholder="Выберите дату и время начала"
+            :is-date-disabled="disablePastDates"
           />
         </n-form-item>
 
@@ -211,9 +243,9 @@
           <n-button
             type="primary"
             :loading="createLoading"
-            @click="handleCreateAuction"
+            @click="handleSaveAuction"
           >
-            Создать
+            {{ isEditMode ? 'Сохранить' : 'Создать' }}
           </n-button>
         </n-space>
       </n-form>
@@ -240,18 +272,21 @@ import {
   NFormItem,
   NInputNumber,
   NSpace,
-  NDatePicker,      // <-- добавить
+  NDatePicker,
   useMessage
 } from 'naive-ui';
 
 const router = useRouter();
 const message = useMessage();
 
+// Текущий пользователь (id из JWT)
+const currentUserId = ref(null);
+
 // фильтры
 const search = ref('');
-const selectedTheme = ref(null);   
-const selectedType = ref(null);    
-const selectedStatus = ref(null);  
+const selectedTheme = ref(null);
+const selectedType = ref(null);
+const selectedStatus = ref(null);
 const sort = ref('created_desc');
 
 // данные
@@ -260,7 +295,6 @@ const loading = ref(false);
 const appendLoading = ref(false);
 const error = ref('');
 
-// ENUM мапы (должны совпадать с model Auction)
 const THEME_LABELS = {
   cars: 'Автомобили',
   real_estate_residential: 'Жилая недвижимость',
@@ -318,19 +352,26 @@ const hasMore = ref(false);
 const loadMoreTrigger = ref(null);
 let observer = null;
 
-// состояниe модалки создания
+// состояние модалки создания/редактирования
 const showCreateModal = ref(false);
+const isEditMode = ref(false);
+const editingAuctionId = ref(null);
+
 const createTitle = ref('');
 const createDescription = ref('');
 const createTheme = ref(null);
 const createType = ref('classic');
 const createStartingPrice = ref(null);
-const createStartsAt = ref(null); // number | null
-const createEndsAt = ref(null);   // number | null
+const createStartsAt = ref(null); // timestamp
+const createEndsAt = ref(null);   // timestamp
 const createLoading = ref(false);
 
 function goToProfile() {
   router.push('/profile');
+}
+
+function goToAuction(id) {
+  router.push(`/auction/${id}`);
 }
 
 function themeLabel(value) {
@@ -348,6 +389,27 @@ function formatDateTime(value) {
   return new Date(value).toLocaleString();
 }
 
+// определить, является ли текущий пользователь организатором
+function isOwner(auction) {
+  if (!currentUserId.value) return false;
+  // либо по creator.id, либо по createdBy, в зависимости от того, что ты возвращаешь из бэка
+  const creatorId = auction.creator?.id ?? auction.createdBy;
+  return creatorId === currentUserId.value;
+}
+
+// получить userId из JWT в localStorage
+function getCurrentUserIdFromToken() {
+  const token = localStorage.getItem('accessToken');
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.userId || null;
+  } catch {
+    return null;
+  }
+}
+
+// загрузка аукционов
 async function loadAuctions({ reset = false } = {}) {
   if (reset) {
     loading.value = true;
@@ -422,22 +484,88 @@ function setupObserver() {
   observer.observe(loadMoreTrigger.value);
 }
 
-// модалка создания
+// модалка создания/редактирования
+function resetCreateForm() {
+  createTitle.value = '';
+  createDescription.value = '';
+  createTheme.value = null;
+  createType.value = 'classic';
+  createStartingPrice.value = null;
+  createStartsAt.value = null;
+  createEndsAt.value = null;
+}
+
 function openCreateModal() {
+  isEditMode.value = false;
+  editingAuctionId.value = null;
+  resetCreateForm();
+  showCreateModal.value = true;
+}
+
+function openEditModal(auction) {
+  isEditMode.value = true;
+  editingAuctionId.value = auction.id;
+
+  createTitle.value = auction.title;
+  createDescription.value = auction.description || '';
+  createTheme.value = auction.theme;
+  createType.value = auction.type;
+  createStartingPrice.value = Number(auction.startingPrice);
+  createStartsAt.value = auction.startsAt ? new Date(auction.startsAt).getTime() : null;
+  createEndsAt.value = auction.endsAt ? new Date(auction.endsAt).getTime() : null;
+
   showCreateModal.value = true;
 }
 
 function disablePastDates(ts) {
   const now = Date.now();
-  // запрещаем выбирать дату/время в прошлом (с небольшим запасом)
   return ts < now - 60 * 1000;
 }
 
 function closeCreateModal() {
   showCreateModal.value = false;
+  isEditMode.value = false;
+  editingAuctionId.value = null;
 }
 
-async function handleCreateAuction() {
+function canEditDelete(auction) {
+  if (!isOwner(auction)) return false;
+  if (!auction.startsAt) return false;
+
+  const now = Date.now();
+  const startTs = new Date(auction.startsAt).getTime();
+
+  // До начала аукциона (строго)
+  return now < startTs && auction.status === 'appointed';
+}
+
+async function handleDeleteAuction(auction) {
+  if (!canEditDelete(auction)) {
+    message.error('Нельзя удалить аукцион после его начала');
+    return;
+  }
+
+  const ok = window.confirm('Удалить этот аукцион?');
+  if (!ok) return;
+
+  try {
+    await api.delete(`/api/auctions/${auction.id}`);
+    message.success('Аукцион удалён');
+
+    // обновим список
+    await loadAuctions({ reset: true });
+  } catch (e) {
+    const msg = e.response?.data?.error || e.message || 'Ошибка удаления аукциона';
+    message.error(msg);
+
+    if (e.response?.status === 401) {
+      router.push('/auth');
+    }
+  }
+}
+
+// сохранение (создание или редактирование)
+async function handleSaveAuction() {
   if (
     !createTitle.value ||
     !createDescription.value ||
@@ -453,46 +581,34 @@ async function handleCreateAuction() {
   createLoading.value = true;
 
   try {
-    if (
-      !createTitle.value ||
-      !createDescription.value ||
-      !createTheme.value ||
-      !createStartingPrice.value ||
-      !createStartsAt.value ||
-      !createEndsAt.value
-    ) {
-      message.error('Заполните все обязательные поля');
-      return;
-    }
-
     const payload = {
       title: createTitle.value,
       description: createDescription.value,
-      theme: createTheme.value,     // ENUM theme
-      type: createType.value,       // ENUM type
+      theme: createTheme.value,
+      type: createType.value,
       startingPrice: createStartingPrice.value,
       startsAt: new Date(createStartsAt.value).toISOString(),
       endsAt: new Date(createEndsAt.value).toISOString()
     };
 
-    const res = await api.post('/api/auctions', payload);
+    if (isEditMode.value && editingAuctionId.value) {
+      // РЕДАКТИРОВАНИЕ — нужен PUT /api/auctions/:id на бэке
+      await api.put(`/api/auctions/${editingAuctionId.value}`, payload);
+      message.success('Аукцион обновлён');
+    } else {
+      // СОЗДАНИЕ
+      await api.post('/api/auctions', payload);
+      message.success('Аукцион создан');
+    }
 
-    message.success('Аукцион создан');
     showCreateModal.value = false;
+    isEditMode.value = false;
+    editingAuctionId.value = null;
+    resetCreateForm();
 
-    // очистим форму
-    createTitle.value = '';
-    createDescription.value = '';
-    createTheme.value = null;
-    createType.value = 'classic';
-    createStartingPrice.value = null;
-    createStartsAt.value = null;
-    createEndsAt.value = null;
-
-    // перезагрузим список
     await loadAuctions({ reset: true });
   } catch (e) {
-    const msg = e.response?.data?.error || e.message || 'Ошибка создания аукциона';
+    const msg = e.response?.data?.error || e.message || 'Ошибка сохранения аукциона';
     message.error(msg);
 
     if (e.response?.status === 401) {
@@ -503,9 +619,34 @@ async function handleCreateAuction() {
   }
 }
 
+const ws = ref(null);
+
 onMounted(async () => {
+  currentUserId.value = getCurrentUserIdFromToken();
   await loadAuctions({ reset: true });
   setupObserver();
+
+  // WebSocket-подключение
+  ws.value = new WebSocket('ws://localhost:3000'); // порт бэка
+
+  ws.value.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === 'auction_status_changed') {
+        const { auction } = msg;
+        // найдём аукцион в списке и обновим статус/время
+        const idx = auctions.value.findIndex(a => a.id === auction.id);
+        if (idx !== -1) {
+          auctions.value[idx].status = auction.status;
+          auctions.value[idx].startsAt = auction.startsAt;
+          auctions.value[idx].endsAt = auction.endsAt;
+        }
+      }
+    } catch (e) {
+      console.error('WS parse error:', e);
+    }
+  };
 });
 
 onBeforeUnmount(() => {
@@ -513,6 +654,10 @@ onBeforeUnmount(() => {
     observer.unobserve(loadMoreTrigger.value);
   }
   if (observer) observer.disconnect();
+
+  if (ws.value) {
+    ws.value.close();
+  }
 });
 </script>
 
@@ -558,17 +703,17 @@ onBeforeUnmount(() => {
 }
 
 .card-wrapper {
-  height: 100%; /* ячейка грида по высоте */
+  height: 100%;
 }
 
 .auction-card {
-  height: 100%;              /* карта занимает всю высоту ячейки */
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .auction-card-body {
-  flex: 1;                   /* тело растягивается до низа карточки */
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -584,14 +729,21 @@ onBeforeUnmount(() => {
 
 .label {
   font-weight: 600;
-  min-width: 110px;       /* фиксированная ширина под "Организатор:" и т.п. */
-  white-space: nowrap;    /* не переносить текст метки */
+  min-width: 110px;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
 .value {
   flex: 1;
-  word-break: break-word; /* переносить длинные значения (email и т.п.) */
+  word-break: break-word;
+}
+
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .mb-12 {
