@@ -1,5 +1,6 @@
 // server/controllers/auction.js
 const auctionService = require('../services/auction');
+const { getAuctionWithBids } = require('../services/bid'); // <-- ВАЖНО: правильный импорт
 
 async function list(req, res) {
   try {
@@ -27,6 +28,18 @@ async function list(req, res) {
   } catch (e) {
     console.error('Auctions list error:', e);
     res.status(500).json({ error: 'Ошибка загрузки аукционов' });
+  }
+}
+
+// детали аукциона + история ставок + лучшая ставка
+async function getOne(req, res) {
+  try {
+    const { id } = req.params;
+    const data = await getAuctionWithBids(id); // { auction, bids, bestBid }
+    res.json(data);
+  } catch (e) {
+    console.error('Get auction error:', e);
+    res.status(400).json({ error: e.message || 'Ошибка загрузки аукциона' });
   }
 }
 
@@ -115,7 +128,7 @@ async function remove(req, res) {
 
     await auctionService.deleteAuction({ auctionId, userId });
 
-    res.status(204).send(); // No Content
+    res.status(204).send();
   } catch (e) {
     console.error('Delete auction error:', e);
     res.status(400).json({ error: e.message || 'Ошибка удаления аукциона' });
@@ -124,6 +137,7 @@ async function remove(req, res) {
 
 module.exports = {
   list,
+  getOne,
   create,
   update,
   remove

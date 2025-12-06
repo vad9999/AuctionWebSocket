@@ -1,50 +1,60 @@
 // server/services/auctionTime.js
-const { Op } = require('sequelize');
 const { Auction } = require('../models');
 
-/**
- * Обновить статусы по времени:
- * - appointed -> active, если startsAt <= now
- * - active    -> finished, если endsAt <= now
- *
- * broadcastFn(auction) вызывается для каждого аукциона, у которого статус изменился.
- */
-async function updateAuctionsStatusByTime(broadcastFn) {
+// обновляем status по времени для одного аукциона
+async function syncAuctionStatusByTime(auction) {
+  const now = new Date();
+  let newStatus = auction.status;
+
+  if (
+    auction.status === 'appointed' &&
+    auction.startsAt &&
+    auction.startsAt <= now
+  ) {
+    newStatus = 'active';
+  }
+
+  if (
+    (auction.status === 'active' || newStatus === 'active') &&
+    auction.endsAt &&
+    auction.endsAt <= now
+  ) {
+    newStatus = 'finished';
+  }
+
+  if (newStatus !== auction.status) {
+    auction.status = newStatus;
+    await auction.save();
+  }
+
+  return auction;
+}
+
+// проверка: аукцион существует, начался, не завершён, статус active
+async function ensureAuctionAvailableForBid(auctionId) {
+  const auction = await Auction.findByPk(auctionId);
+  if (!auction) {
+    throw new Error('Аукцион не найден');
+  }
+
+  await syncAuctionStatusByTime(auction);
+
   const now = new Date();
 
-  // appointed -> active
-  const toActivate = await Auction.findAll({
-    where: {
-      status: 'appointed',
-      startsAt: { [Op.lte]: now }
-    }
-  });
-
-  for (const auction of toActivate) {
-    auction.status = 'active';
-    await auction.save();
-    if (broadcastFn) {
-      broadcastFn(auction);
-    }
+  if (auction.startsAt && now < auction.startsAt) {
+    throw new Error('Аукцион ещё не начался');
+  }
+  if (auction.endsAt && now >= auction.endsAt) {
+    throw new Error('Аукцион уже завершён');
+  }
+  if (auction.status !== 'active') {
+    throw new Error('По этому аукциону нельзя делать ставки');
   }
 
-  // active -> finished
-  const toFinish = await Auction.findAll({
-    where: {
-      status: 'active',
-      endsAt: { [Op.lte]: now }
-    }
-  });
-
-  for (const auction of toFinish) {
-    auction.status = 'finished';
-    await auction.save();
-    if (broadcastFn) {
-      broadcastFn(auction);
-    }
-  }
+  return auction;
 }
 
 module.exports = {
-  updateAuctionsStatusByTime
+  syncAuctionStatusByTime,
+  ensureAuctionAvailableForBid
 };
