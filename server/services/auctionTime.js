@@ -1,7 +1,5 @@
-// server/services/auctionTime.js
 const { Auction } = require('../models');
 
-// обновляем status по времени для одного аукциона
 async function syncAuctionStatusByTime(auction) {
   const now = new Date();
   let newStatus = auction.status;
@@ -30,7 +28,6 @@ async function syncAuctionStatusByTime(auction) {
   return auction;
 }
 
-// проверка: аукцион существует, начался, не завершён, статус active
 async function ensureAuctionAvailableForBid(auctionId) {
   const auction = await Auction.findByPk(auctionId);
   if (!auction) {

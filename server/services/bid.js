@@ -1,18 +1,15 @@
-// server/services/bid.js
 const { Auction, Bid, User } = require('../models');
 const { ensureAuctionAvailableForBid } = require('./auctionTime');
 
-// выбрать лучшую ставку по типу аукциона
 function getBestBidForAuction(auction, bids) {
   if (!bids.length) return null;
+  
   if (auction.type === 'classic') {
-    // максимальная ставка побеждает
     return bids.reduce((max, b) =>
       Number(b.amount) > Number(max.amount) ? b : max
     );
   }
   if (auction.type === 'dutch') {
-    // минимальная ставка побеждает (упрощённо)
     return bids.reduce((min, b) =>
       Number(b.amount) < Number(min.amount) ? b : min
     );
@@ -20,7 +17,6 @@ function getBestBidForAuction(auction, bids) {
   return null;
 }
 
-// детали аукциона + история ставок + лучшая ставка
 async function getAuctionWithBids(auctionId) {
   const auction = await Auction.findByPk(auctionId, {
     include: [
@@ -50,12 +46,10 @@ async function getAuctionWithBids(auctionId) {
   return { auction, bids, bestBid };
 }
 
-// сделать ставку
 async function placeBid({ auctionId, userId, amount }) {
-  // проверяем, что аукцион существует, начался и не завершён
+
   const auctionForCheck = await ensureAuctionAvailableForBid(auctionId);
 
-  // ВАЖНО: запрет для организатора
   if (auctionForCheck.createdBy === userId) {
     throw new Error('Организатор не может делать ставки в своём аукционе');
   }

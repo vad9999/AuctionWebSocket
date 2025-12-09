@@ -1,6 +1,6 @@
 <template>
   <div class="home-page">
-    <!-- Верхняя панель -->
+    <!-- Верх -->
     <div class="top-bar">
       <div class="filters-left">
         <n-input
@@ -51,13 +51,10 @@
         <n-button type="success" @click="openCreateModal">
           Создать аукцион
         </n-button>
-        <n-button @click="goToProfile">
-          Настройки профиля
-        </n-button>
       </div>
     </div>
 
-    <!-- Список аукционов -->
+    <!-- Список -->
     <div class="auctions-list">
       <n-spin :show="loading && !appendLoading">
         <n-alert v-if="error" type="error" class="mb-12">
@@ -123,7 +120,6 @@
                   </div>
                 </div>
 
-                <!-- Кнопки действий под карточкой -->
                 <template #footer>
                   <div class="card-actions">
                     <n-button
@@ -132,7 +128,6 @@
                     >
                       Посмотреть
                     </n-button>
-
                     <n-button
                       v-if="canEditDelete(auction)"
                       size="small"
@@ -142,7 +137,6 @@
                     >
                       Изменить
                     </n-button>
-
                     <n-button
                       v-if="canEditDelete(auction)"
                       size="small"
@@ -170,7 +164,7 @@
       </div>
     </div>
 
-    <!-- Модальное окно создания / редактирования аукциона -->
+    <!-- Создание Редактирование -->
     <n-modal
       v-model:show="showCreateModal"
       preset="card"
@@ -257,6 +251,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/client';
+import { io } from 'socket.io-client';
 import {
   NInput,
   NSelect,
@@ -275,73 +270,35 @@ import {
   NDatePicker,
   useMessage
 } from 'naive-ui';
+import {
+  themeOptions,
+  typeOptions,
+  statusOptions,
+  sortOptions,
+  themeLabel,
+  typeLabel,
+  statusLabel,
+  DEFAULT_SORT
+} from '@/constants/auction';
 
 const router = useRouter();
 const message = useMessage();
 
-// Текущий пользователь (id из JWT)
 const currentUserId = ref(null);
+const socket = ref(null);
 
 // фильтры
 const search = ref('');
 const selectedTheme = ref(null);
 const selectedType = ref(null);
 const selectedStatus = ref(null);
-const sort = ref('created_desc');
+const sort = ref(DEFAULT_SORT);
 
 // данные
 const auctions = ref([]);
 const loading = ref(false);
 const appendLoading = ref(false);
 const error = ref('');
-
-const THEME_LABELS = {
-  cars: 'Автомобили',
-  real_estate_residential: 'Жилая недвижимость',
-  electronics: 'Электроника',
-  furniture: 'Мебель',
-  clothes: 'Одежда',
-  sports: 'Спорт',
-  kids_toys: 'Детские игрушки',
-  books: 'Книги',
-  services_it: 'IT-услуги',
-  services_repair: 'Ремонт и строительство',
-  game_items: 'Игровые предметы',
-  business_equipment: 'Оборудование для бизнеса',
-  charity: 'Благотворительность'
-};
-
-const TYPE_LABELS = {
-  classic: 'Классический',
-  dutch: 'Голландский'
-};
-
-const STATUS_LABELS = {
-  appointed: 'Назначен',
-  active: 'Активен',
-  finished: 'Завершён'
-};
-
-const themeOptions = Object.entries(THEME_LABELS).map(([value, label]) => ({
-  label,
-  value
-}));
-
-const typeOptions = Object.entries(TYPE_LABELS).map(([value, label]) => ({
-  label,
-  value
-}));
-
-const statusOptions = Object.entries(STATUS_LABELS).map(([value, label]) => ({
-  label,
-  value
-}));
-
-const sortOptions = [
-  { label: 'Новые сначала', value: 'created_desc' },
-  { label: 'Скоро заканчиваются', value: 'end_asc' },
-  { label: 'Позже заканчиваются', value: 'end_desc' }
-];
 
 // пагинация
 const page = ref(1);
@@ -352,7 +309,7 @@ const hasMore = ref(false);
 const loadMoreTrigger = ref(null);
 let observer = null;
 
-// состояние модалки создания/редактирования
+// модалка
 const showCreateModal = ref(false);
 const isEditMode = ref(false);
 const editingAuctionId = ref(null);
@@ -362,26 +319,12 @@ const createDescription = ref('');
 const createTheme = ref(null);
 const createType = ref('classic');
 const createStartingPrice = ref(null);
-const createStartsAt = ref(null); // timestamp
-const createEndsAt = ref(null);   // timestamp
+const createStartsAt = ref(null);
+const createEndsAt = ref(null);
 const createLoading = ref(false);
-
-function goToProfile() {
-  router.push('/profile');
-}
 
 function goToAuction(id) {
   router.push(`/auction/${id}`);
-}
-
-function themeLabel(value) {
-  return THEME_LABELS[value] || value || '—';
-}
-function typeLabel(value) {
-  return TYPE_LABELS[value] || value || '—';
-}
-function statusLabel(value) {
-  return STATUS_LABELS[value] || value || '—';
 }
 
 function formatDateTime(value) {
@@ -389,15 +332,6 @@ function formatDateTime(value) {
   return new Date(value).toLocaleString();
 }
 
-// определить, является ли текущий пользователь организатором
-function isOwner(auction) {
-  if (!currentUserId.value) return false;
-  // либо по creator.id, либо по createdBy, в зависимости от того, что ты возвращаешь из бэка
-  const creatorId = auction.creator?.id ?? auction.createdBy;
-  return creatorId === currentUserId.value;
-}
-
-// получить userId из JWT в localStorage
 function getCurrentUserIdFromToken() {
   const token = localStorage.getItem('accessToken');
   if (!token) return null;
@@ -409,7 +343,20 @@ function getCurrentUserIdFromToken() {
   }
 }
 
-// загрузка аукционов
+function isOwner(auction) {
+  if (!currentUserId.value) return false;
+  const creatorId = auction.creator?.id ?? auction.createdBy;
+  return creatorId === currentUserId.value;
+}
+
+function canEditDelete(auction) {
+  if (!isOwner(auction)) return false;
+  if (!auction.startsAt) return false;
+  const now = Date.now();
+  const startTs = new Date(auction.startsAt).getTime();
+  return now < startTs && auction.status === 'appointed';
+}
+
 async function loadAuctions({ reset = false } = {}) {
   if (reset) {
     loading.value = true;
@@ -484,7 +431,6 @@ function setupObserver() {
   observer.observe(loadMoreTrigger.value);
 }
 
-// модалка создания/редактирования
 function resetCreateForm() {
   createTitle.value = '';
   createDescription.value = '';
@@ -505,7 +451,6 @@ function openCreateModal() {
 function openEditModal(auction) {
   isEditMode.value = true;
   editingAuctionId.value = auction.id;
-
   createTitle.value = auction.title;
   createDescription.value = auction.description || '';
   createTheme.value = auction.theme;
@@ -513,7 +458,6 @@ function openEditModal(auction) {
   createStartingPrice.value = Number(auction.startingPrice);
   createStartsAt.value = auction.startsAt ? new Date(auction.startsAt).getTime() : null;
   createEndsAt.value = auction.endsAt ? new Date(auction.endsAt).getTime() : null;
-
   showCreateModal.value = true;
 }
 
@@ -528,43 +472,6 @@ function closeCreateModal() {
   editingAuctionId.value = null;
 }
 
-function canEditDelete(auction) {
-  if (!isOwner(auction)) return false;
-  if (!auction.startsAt) return false;
-
-  const now = Date.now();
-  const startTs = new Date(auction.startsAt).getTime();
-
-  // До начала аукциона (строго)
-  return now < startTs && auction.status === 'appointed';
-}
-
-async function handleDeleteAuction(auction) {
-  if (!canEditDelete(auction)) {
-    message.error('Нельзя удалить аукцион после его начала');
-    return;
-  }
-
-  const ok = window.confirm('Удалить этот аукцион?');
-  if (!ok) return;
-
-  try {
-    await api.delete(`/api/auctions/${auction.id}`);
-    message.success('Аукцион удалён');
-
-    // обновим список
-    await loadAuctions({ reset: true });
-  } catch (e) {
-    const msg = e.response?.data?.error || e.message || 'Ошибка удаления аукциона';
-    message.error(msg);
-
-    if (e.response?.status === 401) {
-      router.push('/auth');
-    }
-  }
-}
-
-// сохранение (создание или редактирование)
 async function handleSaveAuction() {
   if (
     !createTitle.value ||
@@ -592,11 +499,9 @@ async function handleSaveAuction() {
     };
 
     if (isEditMode.value && editingAuctionId.value) {
-      // РЕДАКТИРОВАНИЕ — нужен PUT /api/auctions/:id на бэке
       await api.put(`/api/auctions/${editingAuctionId.value}`, payload);
       message.success('Аукцион обновлён');
     } else {
-      // СОЗДАНИЕ
       await api.post('/api/auctions', payload);
       message.success('Аукцион создан');
     }
@@ -605,7 +510,6 @@ async function handleSaveAuction() {
     isEditMode.value = false;
     editingAuctionId.value = null;
     resetCreateForm();
-
     await loadAuctions({ reset: true });
   } catch (e) {
     const msg = e.response?.data?.error || e.message || 'Ошибка сохранения аукциона';
@@ -619,34 +523,50 @@ async function handleSaveAuction() {
   }
 }
 
-const ws = ref(null);
+async function handleDeleteAuction(auction) {
+  if (!canEditDelete(auction)) {
+    message.error('Нельзя удалить аукцион после его начала');
+    return;
+  }
+
+  const ok = window.confirm('Удалить этот аукцион?');
+  if (!ok) return;
+
+  try {
+    await api.delete(`/api/auctions/${auction.id}`);
+    message.success('Аукцион удалён');
+    await loadAuctions({ reset: true });
+  } catch (e) {
+    const msg = e.response?.data?.error || e.message || 'Ошибка удаления аукциона';
+    message.error(msg);
+
+    if (e.response?.status === 401) {
+      router.push('/auth');
+    }
+  }
+}
+
+function setupSocketIO() {
+  socket.value = io(import.meta.env.VITE_API_URL || 'http://localhost:3000', {
+    withCredentials: true
+  });
+
+  socket.value.on('auction_status_changed', (a) => {
+    const idx = auctions.value.findIndex(item => item.id === a.id);
+    if (idx !== -1) {
+      auctions.value[idx].status = a.status;
+      auctions.value[idx].startsAt = a.startsAt;
+      auctions.value[idx].endsAt = a.endsAt;
+      auctions.value[idx].currentPrice = a.currentPrice;
+    }
+  });
+}
 
 onMounted(async () => {
   currentUserId.value = getCurrentUserIdFromToken();
   await loadAuctions({ reset: true });
   setupObserver();
-
-  // WebSocket-подключение
-  ws.value = new WebSocket('ws://localhost:3000'); // порт бэка
-
-  ws.value.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-
-      if (msg.type === 'auction_status_changed') {
-        const { auction } = msg;
-        // найдём аукцион в списке и обновим статус/время
-        const idx = auctions.value.findIndex(a => a.id === auction.id);
-        if (idx !== -1) {
-          auctions.value[idx].status = auction.status;
-          auctions.value[idx].startsAt = auction.startsAt;
-          auctions.value[idx].endsAt = auction.endsAt;
-        }
-      }
-    } catch (e) {
-      console.error('WS parse error:', e);
-    }
-  };
+  setupSocketIO();
 });
 
 onBeforeUnmount(() => {
@@ -655,8 +575,8 @@ onBeforeUnmount(() => {
   }
   if (observer) observer.disconnect();
 
-  if (ws.value) {
-    ws.value.close();
+  if (socket.value) {
+    socket.value.disconnect();
   }
 });
 </script>
@@ -719,7 +639,6 @@ onBeforeUnmount(() => {
   gap: 4px;
 }
 
-/* Строка: лейбл слева, значение справа с переносом */
 .line {
   display: flex;
   align-items: flex-start;

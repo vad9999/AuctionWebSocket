@@ -1,6 +1,5 @@
-// server/controllers/auction.js
 const auctionService = require('../services/auction');
-const { getAuctionWithBids } = require('../services/bid'); // <-- ВАЖНО: правильный импорт
+const { getAuctionWithBids } = require('../services/bid'); 
 
 async function list(req, res) {
   try {
@@ -31,11 +30,10 @@ async function list(req, res) {
   }
 }
 
-// детали аукциона + история ставок + лучшая ставка
 async function getOne(req, res) {
   try {
     const { id } = req.params;
-    const data = await getAuctionWithBids(id); // { auction, bids, bestBid }
+    const data = await getAuctionWithBids(id); 
     res.json(data);
   } catch (e) {
     console.error('Get auction error:', e);

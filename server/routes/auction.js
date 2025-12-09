@@ -1,4 +1,3 @@
-// server/routes/auction.js
 const express = require('express');
 const router = express.Router();
 const auctionController = require('../controllers/auction');

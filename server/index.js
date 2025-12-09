@@ -1,4 +1,3 @@
-// server/index.js
 require('dotenv').config();
 const http = require('http');
 const express = require('express');
@@ -6,7 +5,7 @@ const cors = require('cors');
 
 const authRoutes = require('./routes/auth');
 const auctionRoutes = require('./routes/auction');
-const { setupWebSocket } = require('./ws');
+const { setupSocketIO } = require('./ws'); 
 
 const { sequelize } = require('./models');
 
@@ -30,10 +29,10 @@ async function start() {
     await sequelize.sync({ alter: true });
 
     const server = http.createServer(app);
-    setupWebSocket(server);
+    setupSocketIO(server); 
 
     server.listen(PORT, () => {
-      console.log(`HTTP+WS сервер запущен на http://localhost:${PORT}`);
+      console.log(`Сервер запущен на http://localhost:${PORT}`);
     });
   } catch (err) {
     console.error('DB error:', err);

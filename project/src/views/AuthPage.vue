@@ -1,6 +1,6 @@
 <template>
   <div class="auth-wrapper">
-    <!-- Карточка авторизации -->
+    <!--Авторизации -->
     <n-card title="Авторизация" class="auth-card" size="large">
       <n-form label-placement="top">
         <n-form-item label="Email">
@@ -30,7 +30,7 @@
       </n-form>
     </n-card>
 
-    <!-- Модалка регистрации -->
+    <!--Регистрации -->
     <n-modal
       v-model:show="showRegisterModal"
       preset="card"

@@ -1,10 +1,8 @@
-// server/services/auction.js
 const { Op } = require('sequelize');
 const { Auction, User } = require('../models');
 
 const DEFAULT_LIMIT = 12;
 
-// сортировка
 function buildOrder(sort) {
   switch (sort) {
     case 'end_asc':
@@ -16,7 +14,6 @@ function buildOrder(sort) {
   }
 }
 
-// список аукционов с фильтрами и пагинацией
 async function listAuctions({
   search,
   theme,
@@ -32,13 +29,13 @@ async function listAuctions({
     where.title = { [Op.iLike]: `%${search}%` };
   }
   if (theme) {
-    where.theme = theme; // ENUM theme
+    where.theme = theme; 
   }
   if (type) {
-    where.type = type;   // ENUM type ('classic' | 'dutch')
+    where.type = type;   
   }
   if (status) {
-    where.status = status; // ENUM status ('appointed' | 'active' | 'finished')
+    where.status = status; 
   }
 
   const order = buildOrder(sort);
@@ -71,7 +68,6 @@ async function listAuctions({
   };
 }
 
-// общая валидация полей
 function validateAuctionPayload({ title, description, theme, type, startingPrice, startsAt, endsAt }) {
   if (!title || !description || !theme || !type || !startingPrice || !startsAt || !endsAt) {
     throw new Error('Название, описание, тема, тип, стартовая цена и время начала/окончания обязательны');
@@ -98,7 +94,6 @@ function validateAuctionPayload({ title, description, theme, type, startingPrice
   return { priceNum, startDate, endDate };
 }
 
-// создание аукциона
 async function createAuction({
   title,
   description,
@@ -124,7 +119,7 @@ async function createAuction({
     description,
     theme,
     type,
-    status: 'appointed',    // начальный статус
+    status: 'appointed',    
     startingPrice: priceNum,
     currentPrice: priceNum,
     startsAt: startDate,
@@ -135,7 +130,6 @@ async function createAuction({
   return auction;
 }
 
-// обновление аукциона
 async function updateAuction({
   auctionId,
   userId,
@@ -152,18 +146,15 @@ async function updateAuction({
     throw new Error('Аукцион не найден');
   }
 
-  // проверка, что текущий пользователь — организатор
   if (auction.createdBy !== userId) {
     throw new Error('У вас нет прав на редактирование этого аукциона');
   }
 
   const now = new Date();
 
-  // НЕЛЬЗЯ редактировать после начала
   if (auction.startsAt && now >= auction.startsAt) {
     throw new Error('Нельзя редактировать аукцион после начала');
   }
-  // на всякий случай — завершённый тоже нельзя
   if (auction.status === 'finished') {
     throw new Error('Нельзя редактировать завершённый аукцион');
   }
@@ -185,13 +176,12 @@ async function updateAuction({
   auction.startsAt = startDate;
   auction.endsAt = endDate;
   auction.startingPrice = priceNum;
-  auction.currentPrice = priceNum; // до начала можем перезадать
+  auction.currentPrice = priceNum; 
 
   await auction.save();
   return auction;
 }
 
-// удаление аукциона (soft delete, paranoid)
 async function deleteAuction({ auctionId, userId }) {
   const auction = await Auction.findByPk(auctionId);
   if (!auction) {
@@ -204,12 +194,11 @@ async function deleteAuction({ auctionId, userId }) {
 
   const now = new Date();
 
-  // НЕЛЬЗЯ удалять после начала
   if (auction.startsAt && now >= auction.startsAt) {
     throw new Error('Нельзя удалить аукцион после его начала');
   }
 
-  await auction.destroy(); // paranoid: true => soft delete (deletedAt)
+  await auction.destroy();
 }
 
 module.exports = {

@@ -1,144 +1,110 @@
-// server/ws.js
-const WebSocket = require('ws');
+const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');
+const { Auction } = require('./models');
 const { getAuctionWithBids, placeBid } = require('./services/bid');
+const { syncAuctionStatusByTime } = require('./services/auctionTime');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 
-function setupWebSocket(server) {
-  const wss = new WebSocket.Server({ server });
-
-  // auctionId -> Set<WebSocket>
-  const rooms = new Map();
-
-  function addToRoom(auctionId, ws) {
-    let set = rooms.get(auctionId);
-    if (!set) {
-      set = new Set();
-      rooms.set(auctionId, set);
+function setupSocketIO(server) {
+  const io = new Server(server, {
+    cors: {
+      origin: 'http://localhost:5173',
+      credentials: true
     }
-    set.add(ws);
-    ws._auctionId = auctionId;
-  }
+  });
 
-  function removeFromRoom(ws) {
-    const auctionId = ws._auctionId;
-    if (!auctionId) return;
-    const set = rooms.get(auctionId);
-    if (!set) return;
-    set.delete(ws);
-    if (set.size === 0) {
-      rooms.delete(auctionId);
-    }
-  }
-
-  function broadcastToRoom(auctionId, payloadObj) {
-    const set = rooms.get(auctionId);
-    if (!set) return;
-    const data = JSON.stringify(payloadObj);
-    for (const client of set) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data);
-      }
-    }
-  }
-
-  wss.on('connection', (ws) => {
-    ws.on('message', async (raw) => {
-      let msg;
+  io.on('connection', (socket) => {
+    socket.on('subscribe', async ({ auctionId }) => {
       try {
-        msg = JSON.parse(raw);
-      } catch {
-        return;
-      }
+        const { auction, bids, bestBid } = await getAuctionWithBids(auctionId);
 
-      // подписка на аукцион
-      if (msg.type === 'subscribe' && msg.auctionId) {
-        try {
-          const { auction, bids, bestBid } =
-            await getAuctionWithBids(msg.auctionId);
+        socket.join(`auction:${auction.id}`);
 
-          addToRoom(auction.id, ws);
-
-          ws.send(JSON.stringify({
-            type: 'auction_state',
-            auction,
-            bids,
-            bestBid
-          }));
-        } catch (e) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: e.message || 'Ошибка загрузки аукциона'
-          }));
-        }
-      }
-
-      // ставка через WebSocket
-      if (msg.type === 'place_bid') {
-        try {
-          const { auctionId, amount, token } = msg;
-          if (!token) {
-            ws.send(JSON.stringify({
-              type: 'bid_error',
-              message: 'Не передан токен'
-            }));
-            return;
-          }
-
-          let payload;
-          try {
-            payload = jwt.verify(token, JWT_SECRET);
-          } catch {
-            ws.send(JSON.stringify({
-              type: 'bid_error',
-              message: 'Неверный или просроченный токен'
-            }));
-            return;
-          }
-
-          const userId = payload.userId;
-          if (!userId) {
-            ws.send(JSON.stringify({
-              type: 'bid_error',
-              message: 'Некорректный токен'
-            }));
-            return;
-          }
-
-          const { auction, bids, bestBid } = await placeBid({
-            auctionId,
-            userId,
-            amount
-          });
-
-          // ответ инициатору
-          ws.send(JSON.stringify({
-            type: 'bid_success'
-          }));
-
-          // обновлённое состояние всем подписчикам
-          broadcastToRoom(auction.id, {
-            type: 'bids_update',
-            auction,
-            bids,
-            bestBid
-          });
-        } catch (e) {
-          ws.send(JSON.stringify({
-            type: 'bid_error',
-            message: e.message || 'Ошибка при создании ставки'
-          }));
-        }
+        socket.emit('auction_state', {
+          auction,
+          bids,
+          bestBid
+        });
+      } catch (e) {
+        socket.emit('error', {
+          message: e.message || 'Ошибка загрузки аукциона'
+        });
       }
     });
 
-    ws.on('close', () => {
-      removeFromRoom(ws);
+    socket.on('place_bid', async ({ auctionId, amount, token }) => {
+      try {
+        if (!token) {
+          socket.emit('bid_error', { message: 'Не передан токен' });
+          return;
+        }
+
+        let payload;
+        try {
+          payload = jwt.verify(token, JWT_SECRET);
+        } catch {
+          socket.emit('bid_error', { message: 'Неверный или просроченный токен' });
+          return;
+        }
+
+        const userId = payload.userId;
+        if (!userId) {
+          socket.emit('bid_error', { message: 'Некорректный токен' });
+          return;
+        }
+
+        const { auction, bids, bestBid } = await placeBid({
+          auctionId,
+          userId,
+          amount
+        });
+
+        socket.emit('bid_success');
+
+        io.to(`auction:${auction.id}`).emit('bids_update', {
+          auction,
+          bids,
+          bestBid
+        });
+      } catch (e) {
+        socket.emit('bid_error', {
+          message: e.message || 'Ошибка при создании ставки'
+        });
+      }
     });
   });
 
-  return wss;
+  setInterval(async () => {
+    try {
+      const now = new Date();
+
+      const auctions = await Auction.findAll({
+        where: {
+          status: { [Op.in]: ['appointed', 'active'] }
+        }
+      });
+
+      for (const auction of auctions) {
+        const oldStatus = auction.status;
+        await syncAuctionStatusByTime(auction);
+        if (auction.status !== oldStatus) {
+          io.emit('auction_status_changed', {
+            id: auction.id,
+            status: auction.status,
+            startsAt: auction.startsAt,
+            endsAt: auction.endsAt,
+            currentPrice: auction.currentPrice
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Timer status update error:', e);
+    }
+  }, 5000);
+
+  return io;
 }
 
-module.exports = { setupWebSocket };
+module.exports = { setupSocketIO };

@@ -2,8 +2,6 @@ const authService = require('../services/auth');
 
 async function register(req, res) {
   try {
-    console.log('REGISTER req.body =', req.body); 
-
     const { firstName, lastName, surname, email, password } = req.body;
 
     const result = await authService.register({
@@ -28,7 +26,7 @@ async function login(req, res) {
 
     const result = await authService.login({ email, password });
 
-    return res.json(result); // { user, token }
+    return res.json(result);
   } catch (e) {
     console.error('Login error:', e);
     return res.status(401).json({ error: e.message || 'Ошибка авторизации' });

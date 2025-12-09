@@ -101,6 +101,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import { api } from '@/api/client';
+import { io } from 'socket.io-client';
 import {
   NCard,
   NInputNumber,
@@ -109,6 +110,11 @@ import {
   NSpin,
   useMessage
 } from 'naive-ui';
+import {
+  themeLabel,
+  typeLabel,
+  statusLabel
+} from '@/constants/auction';
 
 const route = useRoute();
 const message = useMessage();
@@ -119,46 +125,10 @@ const bestBid = ref(null);
 
 const bidAmount = ref(null);
 const bidLoading = ref(false);
-const ws = ref(null);
+const socket = ref(null);
 
 const currentUserId = ref(null);
 
-const THEME_LABELS = {
-  cars: 'Автомобили',
-  real_estate_residential: 'Жилая недвижимость',
-  electronics: 'Электроника',
-  furniture: 'Мебель',
-  clothes: 'Одежда',
-  sports: 'Спорт',
-  kids_toys: 'Детские игрушки',
-  books: 'Книги',
-  services_it: 'IT-услуги',
-  services_repair: 'Ремонт и строительство',
-  game_items: 'Игровые предметы',
-  business_equipment: 'Оборудование для бизнеса',
-  charity: 'Благотворительность'
-};
-
-const TYPE_LABELS = {
-  classic: 'Классический',
-  dutch: 'Голландский'
-};
-
-const STATUS_LABELS = {
-  appointed: 'Назначен',
-  active: 'Активен',
-  finished: 'Завершён'
-};
-
-function themeLabel(value) {
-  return THEME_LABELS[value] || value || '—';
-}
-function typeLabel(value) {
-  return TYPE_LABELS[value] || value || '—';
-}
-function statusLabel(value) {
-  return STATUS_LABELS[value] || value || '—';
-}
 function formatDateTime(value) {
   if (!value) return '—';
   return new Date(value).toLocaleString();
@@ -197,55 +167,41 @@ async function loadAuctionHttp() {
   }
 }
 
-function setupWebSocket() {
+function setupSocketIO() {
   const id = Number(route.params.id);
-  ws.value = new WebSocket('ws://localhost:3000');
+  socket.value = io(import.meta.env.VITE_API_URL || 'http://localhost:3000', {
+    withCredentials: true
+  });
 
-  ws.value.onopen = () => {
-    ws.value.send(JSON.stringify({
-      type: 'subscribe',
-      auctionId: id
-    }));
-  };
+  socket.value.on('connect', () => {
+    socket.value.emit('subscribe', { auctionId: id });
+  });
 
-  ws.value.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
+  socket.value.on('auction_state', ({ auction: a, bids: b, bestBid: bb }) => {
+    auction.value = a;
+    bids.value = b || [];
+    bestBid.value = bb || null;
+  });
 
-      if (msg.type === 'auction_state') {
-        auction.value = msg.auction;
-        bids.value = msg.bids || [];
-        bestBid.value = msg.bestBid || null;
-      }
+  socket.value.on('bids_update', ({ auction: a, bids: b, bestBid: bb }) => {
+    auction.value = a;
+    bids.value = b || [];
+    bestBid.value = bb || null;
+  });
 
-      if (msg.type === 'bids_update') {
-        auction.value = msg.auction;
-        bids.value = msg.bids || [];
-        bestBid.value = msg.bestBid || null;
-      }
+  socket.value.on('bid_error', ({ message: msg }) => {
+    bidLoading.value = false;
+    message.error(msg || 'Ошибка ставки');
+  });
 
-      if (msg.type === 'bid_error') {
-        bidLoading.value = false;
-        message.error(msg.message || 'Ошибка ставки');
-      }
+  socket.value.on('bid_success', () => {
+    bidLoading.value = false;
+    bidAmount.value = null;
+    message.success('Ставка принята');
+  });
 
-      if (msg.type === 'bid_success') {
-        bidLoading.value = false;
-        bidAmount.value = null;
-        message.success('Ставка принята');
-      }
-    } catch (e) {
-      console.error('WS parse error:', e);
-    }
-  };
-
-  ws.value.onerror = (e) => {
-    console.error('WS error:', e);
-  };
-
-  ws.value.onclose = () => {
-    ws.value = null;
-  };
+  socket.value.on('disconnect', () => {
+  });
 }
 
 function sendBid() {
@@ -269,30 +225,29 @@ function sendBid() {
     return;
   }
 
-  if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
+  if (!socket.value || !socket.value.connected) {
     message.error('Нет соединения с сервером ставок');
     return;
   }
 
   bidLoading.value = true;
 
-  ws.value.send(JSON.stringify({
-    type: 'place_bid',
+  socket.value.emit('place_bid', {
     auctionId: Number(route.params.id),
     amount: bidAmount.value,
     token
-  }));
+  });
 }
 
 onMounted(async () => {
   currentUserId.value = getCurrentUserIdFromToken();
   await loadAuctionHttp();
-  setupWebSocket();
+  setupSocketIO();
 });
 
 onBeforeUnmount(() => {
-  if (ws.value) {
-    ws.value.close();
+  if (socket.value) {
+    socket.value.disconnect();
   }
 });
 </script>

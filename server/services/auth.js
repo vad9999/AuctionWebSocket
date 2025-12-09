@@ -30,7 +30,7 @@ async function register({ firstName, lastName, surname, email, password }) {
   const user = await User.create({
     firstName,
     lastName,
-    surname: surname || null,   // может быть null
+    surname: surname || null,   
     email,
     passwordHash
   });
